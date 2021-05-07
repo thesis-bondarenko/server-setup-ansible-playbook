@@ -1,0 +1,28 @@
+---
+roles:
+  - name: geerlingguy.nginx
+    version: ">=3.0.0,<3.1.0"
+
+  - name: geerlingguy.mysql
+    version: ">=3.3.0,<3.4.0"
+
+  - name: geerlingguy.php
+    version: ">=4.6.0,<4.7.0"
+
+  # Not sure whether geerlingguy.php-mysql might also be needed
+
+  # Not sure whether makarenalabs.wordpress might also be needed
+
+  - name: geerlingguy.nodejs
+    version: ">=5.1.0,<5.2.0"
+
+  # Not sure whether some PM2 role might also be needed
+
+  - name: geerlingguy.certbot
+    version: ">=4.0.0,<4.1.0"
+
+
+collections:
+  - name: community.general
+    version: ">=3.0.0,<3.1.0"
+...

@@ -1,0 +1,13 @@
+---
+web:
+  - ansible_host: # IP address goes here
+    domain_name: # Domain name goes here
+wordpress:
+  - ansible_host: # IP address goes here
+    domain_name: # Domain name goes here
+    php_version: # PHP version goes here
+    my_sql_credentials:
+      database_name: # MySQL Database name goes here
+      username: # MySQL admin username goes here
+      password: # MySQL admin password goes here
+...
