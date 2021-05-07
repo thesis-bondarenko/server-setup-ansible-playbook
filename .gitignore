@@ -48,3 +48,8 @@ Thumbs.db
 *.mov
 *.wmv
 
+# VSC Files
+.vscode/
+.history/
+.templates/
+sg-server-setup.code-workspace
