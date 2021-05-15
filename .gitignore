@@ -52,4 +52,4 @@ Thumbs.db
 .vscode/
 .history/
 .templates/
-sg-server-setup.code-workspace
+*.code-workspace

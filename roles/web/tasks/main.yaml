@@ -1,0 +1,52 @@
+---
+- name: Ensure the host has a NGINX web server which proxies to a PM2 + node process.
+  remote_user: "{{ admin_username }}"
+  become: true
+  block:
+    - name: Ensure nodejs is installed and PM2 is installed globally via NPM.
+      geerlingguy.nodejs:
+        nodejs_version: 14.x
+        nodejs_npm_global_packages: [pm2]
+        state: present
+
+    - name: Ensure g++ is installed (utility module needed for some Node libraries).
+      ansible.builtin.apt:
+        name: g++
+        state: present
+
+    - name: Ensure node-gyp is installed (utility module needed for some Node libraries).
+      ansible.builtin.apt:
+        name: node-gyp
+        state: present
+
+    - name: Ensure PM2 runs on system startup under the deploy user.
+      ansible.builtin.command: env PATH=$PATH:/usr/bin pm2 startup systemd -u {{ deploy_username }} --hp /home/{{ deploy_username }}
+    # TODO: Create a dedicated user (w.o home) for running PM2 and NodeJS apps e.g. pm2; use that instead.
+
+    - name: Ensure NGINX is installed, configured and started.
+      include_role:
+        name: geerlingguy.nginx
+      vars:
+        nginx_user: www-data
+        nginx_remove_default_vhost: true
+        nginx_upstreams:
+          - name: node-pm2
+            servers:
+              - localhost:{{ node_process_port }}
+            state: present
+        nginx_vhosts:
+          - listen: 443 ssl http2
+            server_name: "{{ prefix_www_to_domain_name | ternary(domain_name + ' www.' + domain_name, domain_name) }}"
+            extra_parameters: |
+              location / {
+                  proxy_pass http://node-pm2;
+                  proxy_set_header Upgrade $http_upgrade;
+                  proxy_set_header Connection 'upgrade';
+                  proxy_set_header Host $host;
+              }
+            state: present
+          - listen: 80
+            server_name: "{{ prefix_www_to_domain_name | ternary(domain_name + ' www.' + domain_name, domain_name) }}"
+            return: 301 https://{{ domain_name }}$request_uri
+            state: present
+...

@@ -1,0 +1,20 @@
+---
+- name: Ensure Certbot for Let's Encrypt is installed and configured.
+  remote_user: "{{ admin_username }}"
+  become: true
+  when: "{{ start_certbot | bool }}"
+  block:
+    - name: Ensure PHP and extensions recommended by WordPress are installed.
+      include_role:
+        name: geerlingguy.certbot
+      vars:
+        certbot_install_method: source
+        certbot_auto_renew_user: "{{ deploy_username }}"
+        certbot_create_if_missing: true
+        certbot_create_method: standalone
+        certbot_admin_email: "{{ certbot_notifications_email }}"
+        certbot_create_standalone_stop_services:
+          - nginx
+        certbot_certs:
+          - domains: "{{ prefix_www_to_domain_name | ternary([domain_name, 'www.' + domain_name], [domain_name]) }}"
+...

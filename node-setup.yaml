@@ -1,2 +1,8 @@
 ---
+- hosts: web
+  remote_user: root
+  roles:
+    - common
+    - web
+    - certbot
 ...

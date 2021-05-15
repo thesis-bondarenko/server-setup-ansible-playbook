@@ -1,0 +1,97 @@
+---
+- name: Ensure the host has a NGINX web server which proxies to a FastCGI + WordPress process.
+  remote_user: "{{ admin_username }}"
+  become: true
+  block:
+    - name: Ensure PHP and extensions recommended by WordPress are installed.
+      include_role:
+        name: geerlingguy.php
+      vars:
+        php_default_version_debian: "{{ php_version }}"
+        php_packages_extra: "{{ ['xmlrpc', 'soap', 'intl', 'zip', 'mysql', 'imagick', 'fpm']
+        | map('regex_replace', '^(.*)$', 'php' ~ php_version ~ '-\\1' ) }}"
+        php_webserver_daemon: nginx
+        php_enable_php_fpm: true
+        php_fpm_pool_user: www-data
+        php_fpm_pool_group: www-data
+        # TODO: Create a dedicated user w.o home (e.g. wordpress) for running FPM/PHP processes; use that instead.
+        # However, configure socket owner/group in FPM's www.conf.j2 as www-data.
+
+    - name: Ensure MYSQL is installed and configured.
+      include_role:
+        name: geerlingguy.mysql
+      vars:
+        mysql_root_username: "{{ mysql_root_username }}"
+        mysql_root_password: "{{ mysql_root_password }}"
+        mysql_user_name: "{{ mysql_root_username }}"
+        mysql_user_password: "{{ mysql_root_password }}"
+        # Explanation for duplication above: if the username's differ or one of them left empty,
+        #   then the role attempts to create an unneeded MySQL user.
+        mysql_enabled_on_startup: true
+        mysql_databases:
+          - name: "{{ mysql_wordpress_database_name }}"
+            state: present
+        mysql_users:
+          - name: "{{ mysql_wordpress_username }}"
+            password: "{{ mysql_wordpress_password }}"
+            priv: "{{ mysql_wordpress_database_name }}.*:ALL"
+            state: present
+          - name: ''
+            state: absent
+
+    - name: Ensure WordPress files are present.
+      ansible.builtin.unarchive:
+        src: https://wordpress.org/latest.tar.gz
+        dest: "/var/www/{{ domain_name }}"
+        remote_src: true
+        creates: "/var/www/{{ domain_name }}/wordpress"
+
+    - name: Ensure 'wp-config.php' is the same as template.
+      template:
+        src: files/wp-config.php.j2
+        dest: "/var/www/{{ http_host }}/wordpress/wp-config.php"
+
+    - name: Ensure all WordPress files and directories are owned by www-data.
+      ansible.builtin.file:
+        path: "/var/www/{{ domain_name }}/wordpress"
+        state: directory
+        recurse: true
+        owner: www-data
+        group: www-data
+        mode: u=rwX,g=rX,o=
+        # TODO: Set the owner/group to wordpress instead.
+
+    - name: Ensure NGINX is installed, configured and started.
+      include_role:
+        name: geerlingguy.nginx
+      vars:
+        nginx_user: www-data
+        nginx_remove_default_vhost: true
+        nginx_vhosts:
+          - listen: "443 ssl http2"
+            server_name: "{{ prefix_www_to_domain_name | ternary(domain_name + ' www.' + domain_name, domain_name) }}"
+            root: "/var/www/{{ domain_name }}/wordpress"
+            extra_parameters: |
+              location ~* /(?:uploads|files)/.*\.php$ {
+                  deny all;
+              }
+
+              location / {
+                  index index.php index.html index.htm;
+                  try_files $uri $uri/ /index.php?$args;
+              }
+
+              location ~ \.php$ {
+                  try_files $uri =404;
+                  fastcgi_split_path_info ^(.+\.php)(/.+)$;
+                  fastcgi_index index.php;
+                  fastcgi_pass unix:/run/php/php{{ php_version }}-fpm.sock;
+                  include fastcgi_params;
+              }
+            state: present
+          - listen: "80"
+            server_name: "{{ prefix_www_to_domain_name | ternary(domain_name + ' www.' + domain_name, domain_name) }}"
+            return: "301 https://{{ domain_name }}$request_uri"
+            state: present
+      notify: Restart FPM
+...
