@@ -50,6 +50,10 @@
       template:
         src: files/wp-config.php.j2
         dest: "/var/www/{{ http_host }}/wordpress/wp-config.php"
+        owner: www-data
+        group: www-data
+        mode: u=rwX,g=rX,o=
+
 
     - name: Ensure all WordPress files and directories are owned by www-data.
       ansible.builtin.file:
