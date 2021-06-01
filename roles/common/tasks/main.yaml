@@ -82,6 +82,18 @@
         port: 22
         proto: tcp
 
+    - name: Ensure server firewall allows HTTP traffic.
+      community.general.ufw:
+        rule: allow
+        port: 80
+        proto: tcp
+
+    - name: Ensure server firewall allows HTTPS traffic.
+      community.general.ufw:
+        rule: allow
+        port: 443
+        proto: tcp
+
     - name: Enable and start UFW.
       community.general.ufw:
         state: enabled
