@@ -19,6 +19,15 @@
         name: node-gyp
         state: present
 
+    - name: Ensure there is a dedicated system user for running node/PM2 which is password locked.
+      ansible.builtin.user:
+        name: node
+        system: true
+        shell: /bin/false
+        create_home: false
+        password_lock: true
+        state: present
+
     - name: Ensure PM2 runs on system startup under the deploy user.
       ansible.builtin.command: env PATH=$PATH:/usr/bin pm2 startup systemd -u {{ deploy_username }} --hp /home/{{ deploy_username }}
     # TODO: Create a dedicated user (w.o home) for running PM2 and NodeJS apps e.g. pm2; use that instead.

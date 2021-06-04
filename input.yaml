@@ -1,31 +1,29 @@
 ---
 web:
-  - ansible_host: # e.g. 164.90.168.152
-    domain_name: # e.g. example.ee
-    prefix_www_to_domain_name: # e.g. true
-    admin_username: # e.g. admin
-    authorized_employees_for_admin: # e.g. [kaarel] (singleton-group/sg-public-keys repo is used to get corresponding public keys)
-    deploy_username: # e.g. deploy
-    commands_allowed_for_deploy: # e.g. ["/bin/systemctl restart php8.0-fpm", "/usr/bin/supervisorctl restart laravel-horizon"]
-    authorized_employees_for_deploy: # e.g. [kaarel, dan, markus] (singleton-group/sg-public-keys repo is used to get corresponding public keys)
-    start_certbot: # e.g. true
-    certbot_notifications_email: # e.g. developer@singleton.ee
-    node_process_port: # e.g. 3000
+  hosts:
+    192.168.1.109:
+      domain_name: example.com
+      prefix_www_to_domain_name: true
+      admin_username: ubuntu
+      authorized_employees_for_admin: [dan, kaarel]
+      deploy_username: deploy
+      commands_allowed_for_deploy: ["/bin/systemctl restart php8.0-fpm", "/usr/bin/supervisorctl restart laravel-horizon"]
+      authorized_employees_for_deploy: [kaarel, dan, markus]
+      start_certbot: false
+      certbot_notifications_email: dan@singleton.ee
+      node_process_port: 3000
+
 wordpress:
-  - ansible_host: # 164.90.168.152 (can be same as above)
-    domain_name: # e.g. cms.example.ee
-    prefix_www_to_domain_name: # e.g. false
-    admin_username: # e.g. admin
-    authorized_employees_for_admin: # e.g. [kaarel] (singleton-group/sg-public-keys repo is used to get corresponding public keys)
-    deploy_username: # e.g. deploy
-    commands_allowed_for_deploy: # e.g. ["/bin/systemctl restart php8.0-fpm", "/usr/bin/supervisorctl restart laravel-horizon"]
-    authorized_employees_for_deploy: # e.g. [kaarel, dan, markus] (singleton-group/sg-public-keys repo is used to get corresponding public keys)
-    start_certbot: # e.g. true
-    certbot_notifications_email: # e.g. developer@singleton.ee
-    php_version: # e.g. "7.4" (This must be quoted! The version should be available from APT for Ubuntu)
-    mysql_root_username: # e.g. root
-    mysql_root_password: # e.g. "IXv1UdbM8u/b7ucd8FBmjw=="
-    mysql_wordpress_username: # e.g. wordpress
-    mysql_wordpress_password: # e.g. "U1KsUrRcvxxu3iWrWphggQ=="
-    mysql_wordpress_database_name: # e.g. wordpress
+  hosts:
+    192.168.1.109:
+      domain_name: cms.example.com
+      prefix_www_to_domain_name: false
+      admin_username: ubuntu
+      authorized_employees_for_admin: [dan, markus]
+      deploy_username: deploy
+      commands_allowed_for_deploy: ["/bin/systemctl restart php8.0-fpm", "/usr/bin/supervisorctl restart laravel-horizon"]
+      authorized_employees_for_deploy: [kaarel, dan, markus]
+      start_certbot: false
+      certbot_notifications_email: dan@singleton.ee
+      php_version: "7.4" 
 ...

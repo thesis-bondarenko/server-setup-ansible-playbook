@@ -1,3 +1,5 @@
+<?php // {{ ansible_managed }}?>
+
 <?php
 /**
  * The base configurations of the WordPress.
@@ -16,13 +18,13 @@
 
 // ** MySQL settings - You can get this info from your web host ** //
 /** The name of the database for WordPress */
-define('DB_NAME', '{{ mysql_wordpress_database_name }}');
+define('DB_NAME', 'wordpress');
 
 /** MySQL database username */
-define('DB_USER', '{{ mysql_wordpress_username }}');
+define('DB_USER', 'wordpress');
 
 /** MySQL database password */
-define('DB_PASSWORD', '{{ mysql_wordpress_password }}');
+define('DB_PASSWORD', '{{ mysql_wordpress_password_input }}');
 
 /** MySQL hostname */
 define('DB_HOST', 'localhost');
@@ -43,7 +45,7 @@ define('DB_COLLATE', '');
  * @since 2.6.0
  */
 
-{{ lookup('url', 'https://api.wordpress.org/secret-key/1.1/salt/') }}
+{{ lookup('url', 'https://api.wordpress.org/secret-key/1.1/salt/', split_lines=false) }}
 
 /**#@-*/
 

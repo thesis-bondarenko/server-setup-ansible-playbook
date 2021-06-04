@@ -3,6 +3,59 @@
   remote_user: "{{ admin_username }}"
   become: true
   block:
+    - name: Generate names for users and groups.
+      set_fact:
+        domain_user: "{{ domain_name | replace('.', '-') }}"
+        domain_group: "{{ domain_name | replace('.', '-') }}-group"
+
+    - name: Create users and groups needed for safe permissions model.
+      block:
+        - name: Ensure there is a group for users which need access to the domain directory.
+          ansible.builtin.group:
+            name: "{{ domain_group }}"
+            system: true
+            state: present
+        - name: Ensure there is an user for Nginx.
+          ansible.builtin.user:
+            name: nginx
+            system: true
+            shell: /bin/false
+            create_home: false
+            password_lock: true
+            groups:
+              - "{{ domain_group }}"
+            state: present
+        - name: Ensure there is an user for the given domain, also in the group for the domain directory.
+          ansible.builtin.user:
+            name: "{{ domain_user }}"
+            system: true
+            shell: /bin/false
+            create_home: false
+            password_lock: true
+            groups:
+              - "{{ domain_group }}"
+            state: present
+        - name: Ensure the deploy user is the group for the domain directory.
+          ansible.builtin.user:
+            name: "{{ deploy_username }}"
+            append: true
+            groups:
+              - "{{ domain_group }}"
+        - name: Ensure there is a system user for running the MySQL daemon.
+          ansible.builtin.user:
+            name: mysql
+            system: true
+            shell: /bin/false
+            create_home: false
+            password_lock: true
+            state: present
+
+    - name: Declare variables to avoid duplication.
+      set_fact:
+        php_fpm_wordpress_socket: /run/php/{{ domain_name }}.sock
+        nginx_wordpress_server_names: "{{ prefix_www_to_domain_name | ternary(domain_name + ' www.' + domain_name, domain_name) }}"
+        domain_directory: /var/www/{{ domain_name }}
+
     - name: Ensure PHP and extensions recommended by WordPress are installed.
       include_role:
         name: geerlingguy.php
@@ -12,69 +65,112 @@
         | map('regex_replace', '^(.*)$', 'php' ~ php_version ~ '-\\1' ) }}"
         php_webserver_daemon: nginx
         php_enable_php_fpm: true
-        php_fpm_pool_user: www-data
-        php_fpm_pool_group: www-data
-        # TODO: Create a dedicated user w.o home (e.g. wordpress) for running FPM/PHP processes; use that instead.
-        # However, configure socket owner/group in FPM's www.conf.j2 as www-data.
+        php_fpm_pools:
+          - pool_name: "{{ domain_name }}"
+            pool_listen: "{{ php_fpm_wordpress_socket }}"
+            pool_template: domain-php-fpm.conf.j2
+            pool_process_user: "{{ domain_user }}"
+            socket_owner_user: "{{ domain_user }}"
+            socket_owner_group: "{{ domain_group }}"
 
-    - name: Ensure MYSQL is installed and configured.
+    - name: Restart PHP-FPM service.
+      ansible.builtin.service:
+        name: php{{ php_version }}-fpm
+        state: restarted
+
+    - name: Delete the default PHP-FPM pool.
+      ansible.builtin.file:
+        name: /etc/php/{{ php_version }}/fpm/pool.d/www.conf
+        state: absent
+
+    - name: Ensure MySQL is installed and configured.
       include_role:
         name: geerlingguy.mysql
       vars:
-        mysql_root_username: "{{ mysql_root_username }}"
-        mysql_root_password: "{{ mysql_root_password }}"
-        mysql_user_name: "{{ mysql_root_username }}"
-        mysql_user_password: "{{ mysql_root_password }}"
-        # Explanation for duplication above: if the username's differ or one of them left empty,
-        #   then the role attempts to create an unneeded MySQL user.
+        mysql_root_password: "{{ mysql_root_password_input }}"
+        mysql_root_password_update: true
         mysql_enabled_on_startup: true
         mysql_databases:
-          - name: "{{ mysql_wordpress_database_name }}"
+          - name: wordpress
             state: present
         mysql_users:
-          - name: "{{ mysql_wordpress_username }}"
-            password: "{{ mysql_wordpress_password }}"
-            priv: "{{ mysql_wordpress_database_name }}.*:ALL"
+          - name: wordpress
+            password: "{{ mysql_wordpress_password_input }}"
+            priv: wordpress.*:ALL
             state: present
-          - name: ''
-            state: absent
 
-    - name: Ensure WordPress files are present.
+    - name: Ensure there is a directory for temporarily storing downloaded WordPress files.
+      ansible.builtin.file:
+        name: /tmp/wordpress
+        state: directory
+
+    - name: Ensure there is a directory in /var/www for the given domain.
+      ansible.builtin.file:
+        name: "{{ domain_directory }}"
+        state: directory
+
+    - name: Download WordPress files from wordpress.org.
       ansible.builtin.unarchive:
         src: https://wordpress.org/latest.tar.gz
-        dest: "/var/www/{{ domain_name }}"
+        dest: /tmp/wordpress
         remote_src: true
-        creates: "/var/www/{{ domain_name }}/wordpress"
 
+    - name: Ensure downloaded WordPress files are copied to domain-specific /var/www directory.
+      ansible.builtin.copy:
+        src: /tmp/wordpress/wordpress/
+        dest: "{{ domain_directory }}"
+        remote_src: true
+
+    - name: Delete downloaded WordPress files.
+      ansible.builtin.file:
+        name: /tmp/wordpress
+        state: absent
+
+    # For some reason this shoul be called:
+    # export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    # see https://github.com/ansible/ansible/issues/49207#issuecomment-799628947
     - name: Ensure 'wp-config.php' is the same as template.
       template:
-        src: files/wp-config.php.j2
-        dest: "/var/www/{{ http_host }}/wordpress/wp-config.php"
-        owner: www-data
-        group: www-data
-        mode: u=rwX,g=rX,o=
+        src: wp-config.php.j2
+        dest: "{{ domain_directory }}/wp-config.php"
+        force: true
+        mode: 0600
 
-
-    - name: Ensure all WordPress files and directories are owned by www-data.
+    - name: Ensure all WordPress files and directories have correct permissions.
       ansible.builtin.file:
-        path: "/var/www/{{ domain_name }}/wordpress"
+        path: "{{ domain_directory }}"
         state: directory
         recurse: true
-        owner: www-data
-        group: www-data
-        mode: u=rwX,g=rX,o=
-        # TODO: Set the owner/group to wordpress instead.
+        owner: "{{ domain_user }}"
+        group: "{{ domain_group }}"
+        mode: u=rwX,g=rwX,o=
+
+    - name: Ensure all directories within the WordPress directory have the SETGID attribute added recursively.
+      ansible.builtin.shell: chmod g+s $(find {{ domain_directory }} -type d)
+
+    # TODO: Delete this block later
+    - name: Gather facts about host.
+      ansible.builtin.gather_facts: {}
+
+    # TODO: Delete this block later
+    - name: Generate names for users and groups.
+      set_fact:
+        domain_user: "{{ domain_name | replace('.', '-') }}"
+        domain_group: "{{ domain_name | replace('.', '-') }}-group"
+        php_fpm_wordpress_socket: /run/php/{{ domain_name }}.sock
+        nginx_wordpress_server_names: "{{ prefix_www_to_domain_name | ternary(domain_name + ' www.' + domain_name, domain_name) }}"
+        domain_directory: /var/www/{{ domain_name }}
 
     - name: Ensure NGINX is installed, configured and started.
       include_role:
         name: geerlingguy.nginx
       vars:
-        nginx_user: www-data
+        nginx_user: nginx
         nginx_remove_default_vhost: true
         nginx_vhosts:
           - listen: "443 ssl http2"
-            server_name: "{{ prefix_www_to_domain_name | ternary(domain_name + ' www.' + domain_name, domain_name) }}"
-            root: "/var/www/{{ domain_name }}/wordpress"
+            server_name: "{{ nginx_wordpress_server_names }}"
+            root: "{{ domain_directory }}"
             extra_parameters: |
               location ~* /(?:uploads|files)/.*\.php$ {
                   deny all;
@@ -89,13 +185,29 @@
                   try_files $uri =404;
                   fastcgi_split_path_info ^(.+\.php)(/.+)$;
                   fastcgi_index index.php;
-                  fastcgi_pass unix:/run/php/php{{ php_version }}-fpm.sock;
-                  include fastcgi_params;
+                  fastcgi_pass unix:{{ php_fpm_wordpress_socket }};
+                  include fastcgi.conf;
               }
             state: present
           - listen: "80"
-            server_name: "{{ prefix_www_to_domain_name | ternary(domain_name + ' www.' + domain_name, domain_name) }}"
+            root: "{{ domain_directory }}"
+            filename: "{{ domain_name }}.80.conf"
+            server_name: "{{ nginx_wordpress_server_names }}"
             return: "301 https://{{ domain_name }}$request_uri"
             state: present
-      notify: Restart FPM
+
+    - name: Delete the default Nginx virtual server.
+      ansible.builtin.file:
+        name: /etc/nginx/sites-available/default
+        state: absent
+
+    - name: Delete the default /var/www/html.
+      ansible.builtin.file:
+        name: /var/www/html
+        state: absent
+
+    - name: Restart SSH
+      service:
+        name: ssh
+        state: restarted
 ...

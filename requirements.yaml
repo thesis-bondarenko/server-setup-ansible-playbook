@@ -1,24 +1,21 @@
 ---
 roles:
-  - name: ansible.posix
-    version: ">=1.2.0,<3.1.0"
-
   - name: geerlingguy.nginx
-    version: ">=3.0.0,<3.1.0"
+    version: "3.0.0"
 
   - name: geerlingguy.mysql
-    version: ">=3.3.0,<3.4.0"
+    version: "3.3.0"
 
   - name: geerlingguy.php
-    version: ">=4.6.0,<4.7.0"
+    version: "4.6.0"
 
   - name: geerlingguy.nodejs
-    version: ">=5.1.0,<5.2.0"
+    version: "5.1.0"
 
   - name: geerlingguy.certbot
-    version: ">=4.0.0,<4.1.0"
+    version: "4.0.0"
 
 collections:
   - name: community.general
-    version: ">=3.0.0,<3.1.0"
+    version: "3.0.0"
 ...

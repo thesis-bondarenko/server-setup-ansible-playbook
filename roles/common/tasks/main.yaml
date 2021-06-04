@@ -1,13 +1,13 @@
 ---
 - name: Check whether it's possible to SSH into root user.
-  ansible.builtin.command:
-    delegate_to: localhost
-    cmd: ssh -q root@{{ inventory_hostname }} exit
+  delegate_to: localhost
+  ignore_errors: true
+  ansible.builtin.command: ssh -q root@{{ inventory_hostname }} exit
   register: root_ssh_attempt
 
 - name: Ensure root user is locked and admin user is set up.
   remote_user: root
-  when: "{{ root_ssh_attempt.rc == 0 }}"
+  when: root_ssh_attempt.rc == 0
   block:
     - name: Ensure password of root user is locked.
       ansible.builtin.user:
@@ -15,32 +15,40 @@
         password_lock: true
         state: present
 
-    - name: Ensure there is an admin user with a locked password.
+    - name: Ensure there is an admin user with a locked password and a SSH key pair.
       ansible.builtin.user:
         name: "{{ admin_username }}"
         password_lock: true
+        generate_ssh_key: true
         state: present
 
-    - name: Add admin user to sudoers list.
+    - name: Ensure admin user is in sudoers list with all rights without password.
       ansible.builtin.lineinfile:
         dest: /etc/sudoers
-        regexp: "{{ admin_username }} ALL"
-        line: "{{ admin_username }} ALL=(ALL:ALL)"
+        regexp: "^{{ admin_username }}\\s"
+        line: "{{ admin_username }} ALL=(ALL:ALL) NOPASSWD: ALL"
         state: present
+
+
+- name: Ensure the host is ready to be further configured for either wordpress or web targets.
+  remote_user: "{{ admin_username }}"
+  become: true
+  block:
+    - name: Gather facts about host system.
+      ansible.builtin.gather_facts:
 
     - name: Retrieve root authorized keys.
       ansible.builtin.command: cat /root/.ssh/authorized_keys
       register: root_authorized_keys
 
-    - name: Ensure admin user has the exact same authorized keys as root user.
+    - name: Ensure admin user has all the authorized keys of root user.
       ansible.posix.authorized_key:
         user: "{{ admin_username }}"
-        exclusive: true
         key: "{{ root_authorized_keys.stdout }}"
         state: present
       notify: Restart SSH
 
-    - name: Disallow SSH access to root user.
+    - name: Ensure SSH access to root user is disallowed.
       ansible.builtin.lineinfile:
         dest: /etc/ssh/sshd_config
         regexp: ^PermitRootLogin
@@ -48,17 +56,29 @@
         state: present
       notify: Restart SSH
 
-- name: Ensure the host is ready to be further configured for either wordpress or web targets.
-  remote_user: "{{ admin_username }}"
-  become: true
-  block:
+    - name: Ensure password-based SSH access is disallowed.
+      ansible.builtin.lineinfile:
+        dest: /etc/ssh/sshd_config
+        regexp: ^PasswordAuthentication
+        line: PasswordAuthentication no
+        state: present
+      notify: Restart SSH
+
+    - name: Ensure challenge-response-based SSH access is disallowed.
+      ansible.builtin.lineinfile:
+        dest: /etc/ssh/sshd_config
+        regexp: ^ChallengeResponseAuthentication
+        line: ChallengeResponseAuthentication no
+        state: present
+      notify: Restart SSH
+
     - name: Update APT package cache.
-      apt:
+      ansible.builtin.apt:
         update_cache: true
         cache_valid_time: 3600
 
     - name: Upgrade APT to the latest packages.
-      apt:
+      ansible.builtin.apt:
         upgrade: safe
 
     - name: Ensure UFW is installed for managing server firewall.
@@ -76,35 +96,32 @@
         default: allow
         direction: outgoing
 
-    - name: Ensure server firewall allows SSH by enabling OpenSSH profile.
+    - name: Ensure server firewall allows SSH.
       community.general.ufw:
         rule: allow
-        port: 22
+        port: "22"
         proto: tcp
 
     - name: Ensure server firewall allows HTTP traffic.
       community.general.ufw:
         rule: allow
-        port: 80
+        port: "80"
         proto: tcp
 
     - name: Ensure server firewall allows HTTPS traffic.
       community.general.ufw:
         rule: allow
-        port: 443
+        port: "443"
         proto: tcp
 
     - name: Enable and start UFW.
       community.general.ufw:
         state: enabled
 
-    - name: Disallow password authentication for SSH.
-      lineinfile:
-        dest: /etc/ssh/sshd_config
-        regexp: ^PasswordAuthentication
-        line: PasswordAuthentication no
-        state: present
-      notify: Restart SSH
+    - name: Ensure UFW service starts on boot.
+      ansible.builtin.service:
+        name: ufw
+        enabled: true
 
     - name: Ensure build-essential packages are installed.
       ansible.builtin.apt:
@@ -121,62 +138,73 @@
         name: nginx
         state: present
 
-    - name: Ensure there is a deploy user with a locked password.
+    - name: Ensure there is a deploy user with a locked password and a SSH key pair.
       ansible.builtin.user:
         name: "{{ deploy_username }}"
         password_lock: true
+        generate_ssh_key: true
         state: present
 
-    - name: Ensure temporary folder used for cloning SSH key repository is empty.
-      ansible.builtin.file:
-        path: /tmp/sg-public-keys
-        state: absent
+    - name: Get employee public keys from Singleton repository and local public keys.
+      become: false
+      delegate_to: localhost
+      block:
+        - name: Ensure temporary folder used for cloning SSH key repository is empty.
+          ansible.builtin.file:
+            path: ./temp
+            state: absent
 
-    - name: Copy public keys from "sg-public-keys" repository into temporary folder.
-      ansible.builtin.git:
-        repo: git@bitbucket.org:singleton-group/sg-public-keys.git
-        dest: /tmp/sg-public-keys
-        accept_hostkey: true
+        - name: Copy public keys from "sg-public-keys" repository into temporary folder.
+          ansible.builtin.git:
+            repo: git@bitbucket.org:singleton-group/sg-public-keys.git
+            dest: ./temp
+            accept_hostkey: true
 
-    - name: Save the contents of the public keys of employees specified for admin in input to an Ansible variable.
-      ansible.builtin.shell:
-        chdir: /tmp/sh-public-keys
-        cmd: "cat `ls | grep -w {{ authorized_employees_for_admin
-        | map('regex_replace', '^(.*)$', '\\1.pub')
-        | join('\\|') }}`"
-        register: matching_public_keys_admin
+        - name: Save the contents of the public keys of employees specified for admin in input to an Ansible variable.
+          ansible.builtin.shell:
+            chdir: temp
+            cmd: "cat `ls | grep -w \"{{ authorized_employees_for_admin
+            | map('regex_replace', '^(.*)$', '\\1.pub')
+            | join('\\|') }}\"`"
+          register: matching_public_keys_admin
+
+        - name: Save the contents of the public keys of employees specified for deploy in input to an Ansible variable.
+          ansible.builtin.shell:
+            chdir: temp
+            cmd: "cat `ls | grep -w \"{{ authorized_employees_for_deploy
+            | map('regex_replace', '^(.*)$', '\\1.pub')
+            | join('\\|') }}\"`"
+          register: matching_public_keys_deploy
+
+        - name: Delete temporary folder used for cloning SSH key repository.
+          ansible.builtin.file:
+            path: temp
+            state: absent
+
+        - name: List public key parameters used locally by SSH agent.
+          ansible.builtin.command: ssh-add -L
+          register: local_public_keys
 
     - name: Ensure admin user accepts SSH connections ONLY from keys specified in input and current public key.
       ansible.posix.authorized_key:
-        user: "{{ deploy_username }}"
+        user: "{{ admin_username }}"
+        exclusive: true
         state: present
-        key: "{{ matching_public_keys_admin.stdout + \n + lookup('file', ansible_ssh_private_key_file) }}"
+        key: "{{ matching_public_keys_admin.stdout + '\n' + local_public_keys.stdout  }}"
       notify: Restart SSH
-
-    - name: Save the contents of the public keys of employees specified for deploy in input to an Ansible variable.
-      ansible.builtin.shell:
-        chdir: /tmp/sh-public-keys
-        cmd: "cat `ls | grep -w {{ authorized_employees_for_deploy
-        | map('regex_replace', '^(.*)$', '\\1.pub')
-        | join('\\|') }}`"
-        register: matching_public_keys_deploy
 
     - name: Ensure deploy user accepts SSH connections ONLY from keys specified in input.
       ansible.posix.authorized_key:
         user: "{{ deploy_username }}"
+        exclusive: true
         state: present
         key: "{{ matching_public_keys_deploy.stdout }}"
       notify: Restart SSH
 
-    - name: Delete temporary folder used for cloning SSH key repository.
-      ansible.builtin.file:
-        path: /tmp/sg-public-keys
-        state: absent
-
     - name: Ensure deploy user is only allowed to sudo the commands specified in input.
       ansible.builtin.lineinfile:
         dest: /etc/sudoers
-        regexp: "{{ deploy_username }} ALL"
+        regexp: "^{{ deploy_username }} "
         line: "{{ deploy_username }} ALL=NOPASSWD: {{ commands_allowed_for_deploy | join(', ') }}"
         state: present
 ...
