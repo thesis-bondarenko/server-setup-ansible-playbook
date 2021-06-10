@@ -1,4 +1,16 @@
 ---
+- name: Use new port specified in input for SSH connections.
+  set_fact:
+    ansible_port: "{{ new_ssh_port }}"
+
+- name: Ensure there is an user for automatically renewing HTTPS certificate.
+  ansible.builtin.user:
+    name: certbot
+    system: true
+    shell: /bin/false
+    create_home: false
+    password_lock: true
+
 - name: Ensure Certbot for Let's Encrypt is installed and configured.
   remote_user: "{{ admin_username }}"
   become: true
@@ -9,7 +21,7 @@
         name: geerlingguy.certbot
       vars:
         certbot_install_method: snap
-        certbot_auto_renew_user: "{{ deploy_username }}"
+        certbot_auto_renew_user: certbot
         certbot_create_if_missing: true
         certbot_create_method: standalone
         certbot_admin_email: "{{ certbot_notifications_email }}"

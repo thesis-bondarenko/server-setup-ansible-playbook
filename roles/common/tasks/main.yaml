@@ -1,8 +1,12 @@
 ---
+- name: Use current port specified in input for SSH connection.
+  set_fact:
+    ansible_port: "{{ current_ssh_port }}"
+
 - name: Check whether it's possible to SSH into root user.
   delegate_to: localhost
   ignore_errors: true
-  ansible.builtin.command: ssh -q root@{{ inventory_hostname }} exit
+  ansible.builtin.command: ssh -q -p {{ current_ssh_port }} root@{{ inventory_hostname }} exit
   register: root_ssh_attempt
 
 - name: Ensure root user is locked and admin user is set up.
@@ -29,7 +33,6 @@
         line: "{{ admin_username }} ALL=(ALL:ALL) NOPASSWD: ALL"
         state: present
 
-
 - name: Ensure the host is ready to be further configured for either wordpress or web targets.
   remote_user: "{{ admin_username }}"
   become: true
@@ -46,7 +49,6 @@
         user: "{{ admin_username }}"
         key: "{{ root_authorized_keys.stdout }}"
         state: present
-      notify: Restart SSH
 
     - name: Ensure SSH access to root user is disallowed.
       ansible.builtin.lineinfile:
@@ -54,7 +56,6 @@
         regexp: ^PermitRootLogin
         line: PermitRootLogin no
         state: present
-      notify: Restart SSH
 
     - name: Ensure password-based SSH access is disallowed.
       ansible.builtin.lineinfile:
@@ -62,7 +63,6 @@
         regexp: ^PasswordAuthentication
         line: PasswordAuthentication no
         state: present
-      notify: Restart SSH
 
     - name: Ensure challenge-response-based SSH access is disallowed.
       ansible.builtin.lineinfile:
@@ -70,7 +70,6 @@
         regexp: ^ChallengeResponseAuthentication
         line: ChallengeResponseAuthentication no
         state: present
-      notify: Restart SSH
 
     - name: Update APT package cache.
       ansible.builtin.apt:
@@ -96,10 +95,16 @@
         default: allow
         direction: outgoing
 
-    - name: Ensure server firewall allows SSH.
+    - name: Ensure server firewall allows SSH through current port.
       community.general.ufw:
         rule: allow
-        port: "22"
+        port: "{{ current_ssh_port }}"
+        proto: tcp
+
+    - name: Ensure server firewall allows SSH through new port.
+      community.general.ufw:
+        rule: allow
+        port: "{{ new_ssh_port }}"
         proto: tcp
 
     - name: Ensure server firewall allows HTTP traffic.
@@ -117,6 +122,33 @@
     - name: Enable and start UFW.
       community.general.ufw:
         state: enabled
+
+    - name: Perform SSH port changing procedure if new and old SSH keys dont match.
+      when: current_ssh_port != new_ssh_port
+      block:
+        - name: Set up new SSH port
+          lineinfile:
+            dest: /etc/ssh/sshd_config
+            regexp: ^Port
+            line: Port {{ new_ssh_port }}
+
+        - name: Restart SSH
+          service:
+            name: ssh
+            state: restarted
+
+        - name: Use new port specified in input for SSH connections.
+          set_fact:
+            ansible_port: "{{ new_ssh_port }}"
+
+        - name: Ensure old SSH port is not allowed through direwall.
+          community.general.ufw:
+            delete: true
+            port: "{{ current_ssh_port }}"
+
+        - name: Reload UFW.
+          community.general.ufw:
+            state: reloaded
 
     - name: Ensure UFW service starts on boot.
       ansible.builtin.service:
@@ -143,6 +175,18 @@
         name: "{{ deploy_username }}"
         password_lock: true
         generate_ssh_key: true
+        state: present
+
+    - name: Ensure there is .profile file in deploy user home directory.
+      ansible.builtin.file:
+        path: /home/{{ deploy_username }}/.profile
+        state: present
+
+    - name: Ensure UMASK of deploy user is 007 when using login shell.
+      ansible.builtin.lineinfile:
+        dest: /home/{{ deploy_username }}/.profile
+        regexp: "^umask"
+        line: "umask 007"
         state: present
 
     - name: Get employee public keys from Singleton repository and local public keys.
@@ -191,7 +235,6 @@
         exclusive: true
         state: present
         key: "{{ matching_public_keys_admin.stdout + '\n' + local_public_keys.stdout  }}"
-      notify: Restart SSH
 
     - name: Ensure deploy user accepts SSH connections ONLY from keys specified in input.
       ansible.posix.authorized_key:
@@ -199,7 +242,6 @@
         exclusive: true
         state: present
         key: "{{ matching_public_keys_deploy.stdout }}"
-      notify: Restart SSH
 
     - name: Ensure deploy user is only allowed to sudo the commands specified in input.
       ansible.builtin.lineinfile:
@@ -207,4 +249,12 @@
         regexp: "^{{ deploy_username }} "
         line: "{{ deploy_username }} ALL=NOPASSWD: {{ commands_allowed_for_deploy | join(', ') }}"
         state: present
+
+    - name: Install and enable fail2ban.
+      include_role:
+        name: robertdebock.fail2ban
+      vars:
+        fail2ban_destemail: "{{ fail2ban_notifications_email }}"
+        fail2ban_sender: fail2ban@{{ domain_name }}
+        fail2ban_ignoreips: "127.0.0.1/8 ::1 {{ fail2ban_whitelisted_ips | join(' ') }}"
 ...

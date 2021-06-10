@@ -1,11 +1,71 @@
 ---
+- name: Use port specified in input for SSH connections.
+  set_fact:
+    ansible_port: "{{ new_ssh_port }}"
+
 - name: Ensure the host has a NGINX web server which proxies to a PM2 + node process.
   remote_user: "{{ admin_username }}"
   become: true
   block:
+    - name: Gather facts about host system.
+      ansible.builtin.gather_facts:
+
+    - name: Generate names for users, groups and directories.
+      set_fact:
+        domain_user: "{{ domain_name_web | replace('.', '-') }}"
+        domain_group: "{{ domain_name_web | replace('.', '-') }}-group"
+        domain_directory: /var/www/{{ domain_name_web }}
+
+    - name: Create users and groups needed for safe permissions model.
+      block:
+        - name: Ensure there is a group for users which need access to the domain directory.
+          ansible.builtin.group:
+            name: "{{ domain_group }}"
+            system: true
+            state: present
+        - name: Ensure there is a system user for Nginx in the domain directory group.
+          ansible.builtin.user:
+            name: nginx
+            system: true
+            shell: /bin/false
+            create_home: false
+            password_lock: true
+            append: true
+            groups:
+              - "{{ domain_group }}"
+            state: present
+        - name: Ensure there is a user with home directory for PM2 in the domain directory group.
+          ansible.builtin.user:
+            name: pm2
+            shell: /bin/false
+            create_home: true
+            password_lock: true
+            groups:
+              - "{{ domain_group }}"
+            state: present
+        - name: Ensure there is an user for the given domain, also in the group for the domain directory.
+          ansible.builtin.user:
+            name: "{{ domain_user }}"
+            system: true
+            shell: /bin/false
+            create_home: false
+            password_lock: true
+            groups:
+              - "{{ domain_group }}"
+            state: present
+        - name: Ensure the deploy user is the group for the domain directory.
+          ansible.builtin.user:
+            name: "{{ deploy_username }}"
+            append: true
+            groups:
+              - "{{ domain_group }}"
+
     - name: Ensure nodejs is installed and PM2 is installed globally via NPM.
-      geerlingguy.nodejs:
+      include_role:
+        name: geerlingguy.nodejs
+      vars:
         nodejs_version: 14.x
+        nodejs_install_npm_user: root
         nodejs_npm_global_packages: [pm2]
         state: present
 
@@ -14,29 +74,32 @@
         name: g++
         state: present
 
-    - name: Ensure node-gyp is installed (utility module needed for some Node libraries).
-      ansible.builtin.apt:
-        name: node-gyp
-        state: present
+    - name: Ensure PM2 runs on system startup.
+      ansible.builtin.command: env PATH=$PATH:/usr/bin pm2 startup systemd -u pm2 --hp /home/pm2
 
-    - name: Ensure there is a dedicated system user for running node/PM2 which is password locked.
-      ansible.builtin.user:
-        name: node
-        system: true
-        shell: /bin/false
-        create_home: false
-        password_lock: true
-        state: present
+    - name: Ensure there is a directory for the node project files with correct permissions set.
+      ansible.builtin.file:
+        name: "{{ domain_directory }}"
+        state: directory
+        owner: "{{ domain_user }}"
+        group: "{{ domain_group }}"
+        mode: "2770"
 
-    - name: Ensure PM2 runs on system startup under the deploy user.
-      ansible.builtin.command: env PATH=$PATH:/usr/bin pm2 startup systemd -u {{ deploy_username }} --hp /home/{{ deploy_username }}
-    # TODO: Create a dedicated user (w.o home) for running PM2 and NodeJS apps e.g. pm2; use that instead.
+    - name: Ensure there is a symlink to domain directory from domain user home for convenience.
+      ansible.builtin.file:
+        name: /home/{{ deploy_username }}/{{ domain_name_web }}
+        src: "{{ domain_directory }}"
+        state: link
+
+    - name: Generate names for users, groups and directories.
+      set_fact:
+        nginx_wordpress_server_names: "{{ prefix_www_to_domain_name_web | ternary(domain_name_web + ' www.' + domain_name_web, domain_name_web) }}"
 
     - name: Ensure NGINX is installed, configured and started.
       include_role:
         name: geerlingguy.nginx
       vars:
-        nginx_user: www-data
+        nginx_user: "{{ domain_user }}"
         nginx_remove_default_vhost: true
         nginx_upstreams:
           - name: node-pm2
@@ -45,7 +108,7 @@
             state: present
         nginx_vhosts:
           - listen: 443 ssl http2
-            server_name: "{{ prefix_www_to_domain_name | ternary(domain_name + ' www.' + domain_name, domain_name) }}"
+            server_name: "{{ nginx_wordpress_server_names }}"
             extra_parameters: |
               location / {
                   proxy_pass http://node-pm2;
@@ -55,7 +118,8 @@
               }
             state: present
           - listen: 80
-            server_name: "{{ prefix_www_to_domain_name | ternary(domain_name + ' www.' + domain_name, domain_name) }}"
-            return: 301 https://{{ domain_name }}$request_uri
+            filename: "{{ domain_name_web }}.80.conf"
+            server_name: "{{ nginx_wordpress_server_names }}"
+            return: 301 https://{{ domain_name_web }}$request_uri
             state: present
 ...

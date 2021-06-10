@@ -1,8 +1,15 @@
 ---
+- name: Use new port specified in input for SSH connections.
+  set_fact:
+    ansible_port: "{{ new_ssh_port }}"
+
 - name: Ensure the host has a NGINX web server which proxies to a FastCGI + WordPress process.
   remote_user: "{{ admin_username }}"
   become: true
   block:
+    - name: Gather facts about host system.
+      ansible.builtin.gather_facts:
+
     - name: Generate names for users and groups.
       set_fact:
         domain_user: "{{ domain_name | replace('.', '-') }}"
@@ -22,6 +29,7 @@
             shell: /bin/false
             create_home: false
             password_lock: true
+            append: true
             groups:
               - "{{ domain_group }}"
             state: present
@@ -100,11 +108,11 @@
             state: present
 
     - name: Ensure there is a directory for temporarily storing downloaded WordPress files.
-      ansible.builtin.file:
-        name: /tmp/wordpress
+      ansible.builtin.tempfile:
         state: directory
+      register: temp_wp_download_directory
 
-    - name: Ensure there is a directory in /var/www for the given domain.
+    - name: Ensure there is a directory in deploy user home directory for domain project files (i.e. WordPress files).
       ansible.builtin.file:
         name: "{{ domain_directory }}"
         state: directory
@@ -112,21 +120,21 @@
     - name: Download WordPress files from wordpress.org.
       ansible.builtin.unarchive:
         src: https://wordpress.org/latest.tar.gz
-        dest: /tmp/wordpress
+        dest: "{{ temp_wp_download_directory.path }}"
         remote_src: true
 
-    - name: Ensure downloaded WordPress files are copied to domain-specific /var/www directory.
+    - name: Ensure downloaded WordPress files are copied to the domain directory in deploy home.
       ansible.builtin.copy:
-        src: /tmp/wordpress/wordpress/
+        src: "{{ temp_wp_download_directory.path }}/wordpress/"
         dest: "{{ domain_directory }}"
         remote_src: true
 
-    - name: Delete downloaded WordPress files.
+    - name: Delete the temporary directory with downloaded WordPress files.
       ansible.builtin.file:
-        name: /tmp/wordpress
+        name: "{{ temp_wp_download_directory.path }}"
         state: absent
 
-    # For some reason this shoul be called:
+    # For some reason this must be called to prevent an internal Ansible error:
     # export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
     # see https://github.com/ansible/ansible/issues/49207#issuecomment-799628947
     - name: Ensure 'wp-config.php' is the same as template.
@@ -141,25 +149,18 @@
         path: "{{ domain_directory }}"
         state: directory
         recurse: true
-        owner: "{{ domain_user }}"
+        owner: "{{ domain_name }}"
         group: "{{ domain_group }}"
         mode: u=rwX,g=rwX,o=
 
     - name: Ensure all directories within the WordPress directory have the SETGID attribute added recursively.
       ansible.builtin.shell: chmod g+s $(find {{ domain_directory }} -type d)
 
-    # TODO: Delete this block later
-    - name: Gather facts about host.
-      ansible.builtin.gather_facts: {}
-
-    # TODO: Delete this block later
-    - name: Generate names for users and groups.
-      set_fact:
-        domain_user: "{{ domain_name | replace('.', '-') }}"
-        domain_group: "{{ domain_name | replace('.', '-') }}-group"
-        php_fpm_wordpress_socket: /run/php/{{ domain_name }}.sock
-        nginx_wordpress_server_names: "{{ prefix_www_to_domain_name | ternary(domain_name + ' www.' + domain_name, domain_name) }}"
-        domain_directory: /var/www/{{ domain_name }}
+    - name: Create a symlink to the domain directory from deploy user home directory for convenience.
+      ansible.builtin.file:
+        path: /home/{{ deploy_user }}/{{ domain_name }}
+        src: "{{ domain_directory }}"
+        state: link
 
     - name: Ensure NGINX is installed, configured and started.
       include_role:
@@ -190,21 +191,10 @@
               }
             state: present
           - listen: "80"
-            root: "{{ domain_directory }}"
             filename: "{{ domain_name }}.80.conf"
             server_name: "{{ nginx_wordpress_server_names }}"
             return: "301 https://{{ domain_name }}$request_uri"
             state: present
-
-    - name: Delete the default Nginx virtual server.
-      ansible.builtin.file:
-        name: /etc/nginx/sites-available/default
-        state: absent
-
-    - name: Delete the default /var/www/html.
-      ansible.builtin.file:
-        name: /var/www/html
-        state: absent
 
     - name: Restart SSH
       service:

@@ -15,6 +15,9 @@ roles:
   - name: geerlingguy.certbot
     version: "4.0.0"
 
+  - name: robertdebock.fail2ban
+    version: "4.0.2"
+
 collections:
   - name: community.general
     version: "3.0.0"
