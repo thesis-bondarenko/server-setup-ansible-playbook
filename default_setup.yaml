@@ -1,0 +1,4 @@
+---
+- import_playbook: node_setup.yaml
+- import_playbook: wordpress_setup.yaml
+...

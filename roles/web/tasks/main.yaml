@@ -26,6 +26,7 @@
             name: "{{ domain_group }}"
             system: true
             state: present
+
         - name: Ensure there is a system user for Nginx in the domain directory group.
           ansible.builtin.user:
             name: nginx
@@ -37,6 +38,7 @@
             groups:
               - "{{ domain_group }}"
             state: present
+
         - name: Ensure there is a user with home directory for PM2 in the domain directory group.
           ansible.builtin.user:
             name: pm2
@@ -46,6 +48,7 @@
             groups:
               - "{{ domain_group }}"
             state: present
+
         - name: Ensure there is an user for the given domain, also in the group for the domain directory.
           ansible.builtin.user:
             name: "{{ domain_user }}"
@@ -56,6 +59,7 @@
             groups:
               - "{{ domain_group }}"
             state: present
+
         - name: Ensure the deploy user is the group for the domain directory.
           ansible.builtin.user:
             name: "{{ deploy_username }}"
@@ -127,8 +131,8 @@
               }
             state: present
           - listen: 80
-            filename: "{{ domain_name }}.80.conf"
+            filename: "{{ domain_name }}.80.conf"  # Filename must differ from TSL vhost, otherwise the file is overwritten.
             server_name: "{{ nginx_wordpress_server_names }}"
-            return: 301 https://{{ domain_name }}$request_uri
+            return: 301 https://{{ domain_name }}$request_uri  # Redirect to HTTPS.
             state: present
 ...

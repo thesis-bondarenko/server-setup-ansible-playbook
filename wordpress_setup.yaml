@@ -1,6 +1,6 @@
 ---
 - hosts: wordpress
-  gather_facts: false
+  gather_facts: false  # Gather facts later when SSH user is known.
   pre_tasks:
     - name: Include shared variables.
       ansible.builtin.include_vars:
@@ -8,7 +8,7 @@
     - name: Include WordPress-specific variables.
       ansible.builtin.include_vars:
         file: input_wordpress.yaml
-  roles:
+  roles:  # Order is important here.
     - common
     - certbot
     - wordpress

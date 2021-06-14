@@ -1,5 +1,5 @@
 ---
-- name: Use new port specified in input for SSH connections!
+- name: Use new port specified in input for SSH connections.
   set_fact:
     ansible_port: "{{ new_ssh_port }}"
 
@@ -25,6 +25,7 @@
             name: "{{ domain_group }}"
             system: true
             state: present
+
         - name: Ensure there is an user for Nginx.
           ansible.builtin.user:
             name: nginx
@@ -36,6 +37,7 @@
             groups:
               - "{{ domain_group }}"
             state: present
+
         - name: Ensure there is an user for the given domain, also in the group for the domain directory.
           ansible.builtin.user:
             name: "{{ domain_user }}"
@@ -46,12 +48,14 @@
             groups:
               - "{{ domain_group }}"
             state: present
+
         - name: Ensure the deploy user is the group for the domain directory.
           ansible.builtin.user:
             name: "{{ deploy_username }}"
             append: true
             groups:
               - "{{ domain_group }}"
+
         - name: Ensure there is a system user for running the MySQL daemon.
           ansible.builtin.user:
             name: mysql
@@ -74,7 +78,7 @@
       vars:
         php_default_version_debian: "{{ php_version }}"
         php_packages_extra: "{{ ['xmlrpc', 'soap', 'intl', 'zip', 'mysql', 'imagick', 'fpm']
-        | map('regex_replace', '^(.*)$', 'php' ~ php_version ~ '-\\1' ) }}"
+        | map('regex_replace', '^(.*)$', 'php' ~ php_version ~ '-\\1' ) }}"  # Append PHP version to package names.
         php_webserver_daemon: nginx
         php_enable_php_fpm: true
         php_fpm_pools:
@@ -99,7 +103,7 @@
       include_role:
         name: geerlingguy.mysql
       vars:
-        mysql_root_password: "{{ _mysql_root_password }}"
+        mysql_root_password: "{{ _mysql_root_password }}"  # Parameter and variable name must differ to avoid Ansible crash.
         mysql_root_password_update: true
         mysql_enabled_on_startup: true
         mysql_databases:
@@ -107,11 +111,11 @@
             state: present
         mysql_users:
           - name: wordpress
-            password: "{{ _mysql_wordpress_password }}"
+            password: "{{ _mysql_wordpress_password }}"  # Parameter and variable name must differ to avoid Ansible crash.
             priv: wordpress.*:ALL
             state: present
 
-    - name: Check whether domain directory has contents.
+    - name: Check whether the domain directory has contents.
       ansible.builtin.find:
         paths: "{{ domain_directory }}"
       register: domain_directory_info
@@ -146,7 +150,7 @@
             name: "{{ temp_wp_download_directory.path }}"
             state: absent
 
-    # This environment variables must be set on Mac OS from High Sierra ownards:
+    # The next task requires that the following environment variable must be set on Mac OS from High Sierra ownards:
     #   export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
     # See: https://github.com/ansible/ansible/issues/32499#issuecomment-341578864
     - name: Ensure 'wp-config.php' is the same as template.
@@ -188,15 +192,17 @@
               ssl_certificate /etc/letsencrypt/live/{{ domain_name }}/fullchain.pem;
               ssl_certificate_key /etc/letsencrypt/live/{{ domain_name }}/privkey.pem;
 
+              # Deny all requests to PHP files in "uploads" or "files" folders.
               location ~* /(?:uploads|files)/.*\.php$ {
                   deny all;
               }
 
               location / {
-                  index index.php index.html index.htm;
+                  index index.php
                   try_files $uri $uri/ /index.php?$args;
               }
 
+              # If request targets a PHP file, then pass the request to PHP-FPM.
               location ~ \.php$ {
                   try_files $uri =404;
                   fastcgi_split_path_info ^(.+\.php)(/.+)$;
@@ -206,8 +212,8 @@
               }
             state: present
           - listen: "80"
-            filename: "{{ domain_name }}.80.conf"
+            filename: "{{ domain_name }}.80.conf"  # Filename must differ from TSL vhost, otherwise the file is overwritten.
             server_name: "{{ nginx_wordpress_server_names }}"
-            return: "301 https://{{ domain_name }}$request_uri"
+            return: "301 https://{{ domain_name }}$request_uri"  # Redirect to HTTPS.
             state: present
 ...

@@ -4,8 +4,8 @@
     ansible_port: "{{ current_ssh_port }}"
 
 - name: Check whether it's possible to SSH into root user.
-  delegate_to: localhost
-  ignore_errors: true
+  delegate_to: localhost  # This task must be executed locally.
+  ignore_errors: true  # Ensure non-zero return code is accepted.
   ansible.builtin.command: ssh -q -p {{ current_ssh_port }} root@{{ inventory_hostname }} exit
   register: root_ssh_attempt
 
@@ -39,7 +39,7 @@
       ansible.builtin.command: cat /root/.ssh/authorized_keys
       register: root_authorized_keys
 
-    - name: Ensure admin user has all the authorized keys of root user.
+    - name: Ensure admin user has all the authorized keys of root user.  # This step is only necessary when admin user was just added.
       ansible.posix.authorized_key:
         user: "{{ admin_username }}"
         key: "{{ root_authorized_keys.stdout }}"
@@ -159,7 +159,7 @@
           set_fact:
             ansible_port: "{{ new_ssh_port }}"
 
-        - name: Delete any UFE rules that allowed SSH through old port.
+        - name: Delete any UFW rules that allowed SSH through old port.
           community.general.ufw:
             rule: allow
             port: "{{ current_ssh_port }}"
@@ -209,7 +209,7 @@
         path: /home/{{ deploy_username }}/.profile
         state: file
 
-    - name: Ensure UMASK of deploy user is 007 when using login shell.
+    - name: Ensure UMASK of deploy user is 007 when using login shell.  # Reduce security concerns by setting permissions for other users to none (o=)
       ansible.builtin.lineinfile:
         dest: /home/{{ deploy_username }}/.profile
         regexp: "^umask"
