@@ -1,7 +1,7 @@
 ---
-domain_name: wp.sg-web.tartu.tech
-prefix_www_to_domain_name: false
-php_version: "7.4"           
-_mysql_root_password: XOJ88Jb5CI*Jo773VQIXEk?mJ6Acwf7s
-_mysql_wordpress_password: HWN@D@?CiG6dQ5YV&xSQ5O6Nml_0&Y+S
+domain_name: # e.g. wp.sg-web.tartu.tech
+prefix_www_to_domain_name: # e.g. false
+php_version: # e.g. "7.4"           
+_mysql_root_password: # e.g. really really good password
+_mysql_wordpress_password: # e.g. really good password
 ...

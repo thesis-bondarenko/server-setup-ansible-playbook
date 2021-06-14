@@ -1,5 +1,5 @@
 ---
-domain_name: sg-web.tartu.tech
-prefix_www_to_domain_name: false
-node_process_port: "3000"
+domain_name: # e.g. sg-web.tartu.tech
+prefix_www_to_domain_name: # e.g. false
+node_process_port: # e.g. "3000"
 ...
