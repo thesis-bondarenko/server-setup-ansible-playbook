@@ -10,11 +10,14 @@
     - name: Gather facts about host system.
       ansible.builtin.gather_facts:
 
-    - name: Generate names for users, groups and directories.
+    - name: Generate names for user and directories.
       set_fact:
-        domain_user: "{{ domain_name_web | replace('.', '-') }}"
-        domain_group: "{{ domain_name_web | replace('.', '-') }}-group"
-        domain_directory: /var/www/{{ domain_name_web }}
+        domain_user: "{{ domain_name | replace('.', '-') | truncate(25, True, '') }}"
+        domain_directory: /var/www/{{ domain_name }}
+
+    - name: Generate name for the system group of this domain.
+      set_fact:
+        domain_group: "{{ domain_user }}-group"
 
     - name: Create users and groups needed for safe permissions model.
       block:
@@ -75,7 +78,7 @@
         state: present
 
     - name: Ensure PM2 runs on system startup.
-      ansible.builtin.command: env PATH=$PATH:/usr/bin pm2 startup systemd -u pm2 --hp /home/pm2
+      ansible.builtin.command: env PATH=$PATH:/usr/bin:/usr/local/lib/npm/bin pm2 startup systemd -u pm2 --hp /home/pm2
 
     - name: Ensure there is a directory for the node project files with correct permissions set.
       ansible.builtin.file:
@@ -87,13 +90,13 @@
 
     - name: Ensure there is a symlink to domain directory from domain user home for convenience.
       ansible.builtin.file:
-        name: /home/{{ deploy_username }}/{{ domain_name_web }}
+        name: /home/{{ deploy_username }}/{{ domain_name }}
         src: "{{ domain_directory }}"
         state: link
 
     - name: Generate names for users, groups and directories.
       set_fact:
-        nginx_wordpress_server_names: "{{ prefix_www_to_domain_name_web | ternary(domain_name_web + ' www.' + domain_name_web, domain_name_web) }}"
+        nginx_wordpress_server_names: "{{ prefix_www_to_domain_name | ternary(domain_name + ' www.' + domain_name, domain_name) }}"
 
     - name: Ensure NGINX is installed, configured and started.
       include_role:
@@ -110,16 +113,22 @@
           - listen: 443 ssl http2
             server_name: "{{ nginx_wordpress_server_names }}"
             extra_parameters: |
+              ssl_certificate /etc/letsencrypt/live/{{ domain_name }}/fullchain.pem;
+              ssl_certificate_key /etc/letsencrypt/live/{{ domain_name }}/privkey.pem;
+
               location / {
-                  proxy_pass http://node-pm2;
+                  # Use variable for proxy pass to avoid Nginx crash when upstream is down.
+                  set $upstream node-pm2;
+                  proxy_pass http://$upstream;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
                   proxy_set_header Upgrade $http_upgrade;
                   proxy_set_header Connection 'upgrade';
                   proxy_set_header Host $host;
               }
             state: present
           - listen: 80
-            filename: "{{ domain_name_web }}.80.conf"
+            filename: "{{ domain_name }}.80.conf"
             server_name: "{{ nginx_wordpress_server_names }}"
-            return: 301 https://{{ domain_name_web }}$request_uri
+            return: 301 https://{{ domain_name }}$request_uri
             state: present
 ...

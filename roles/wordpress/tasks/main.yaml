@@ -1,5 +1,5 @@
 ---
-- name: Use new port specified in input for SSH connections.
+- name: Use new port specified in input for SSH connections!
   set_fact:
     ansible_port: "{{ new_ssh_port }}"
 
@@ -10,10 +10,13 @@
     - name: Gather facts about host system.
       ansible.builtin.gather_facts:
 
-    - name: Generate names for users and groups.
+    - name: Generate name for the system user of this domain.
       set_fact:
-        domain_user: "{{ domain_name | replace('.', '-') }}"
-        domain_group: "{{ domain_name | replace('.', '-') }}-group"
+        domain_user: "{{ domain_name | replace('.', '-') | truncate(25, True, '') }}"
+
+    - name: Generate name for the system group of this domain.
+      set_fact:
+        domain_group: "{{ domain_user }}-group"
 
     - name: Create users and groups needed for safe permissions model.
       block:
@@ -61,7 +64,8 @@
     - name: Declare variables to avoid duplication.
       set_fact:
         php_fpm_wordpress_socket: /run/php/{{ domain_name }}.sock
-        nginx_wordpress_server_names: "{{ prefix_www_to_domain_name | ternary(domain_name + ' www.' + domain_name, domain_name) }}"
+        nginx_wordpress_server_names: "{{ prefix_www_to_domain_name
+        | ternary(domain_name + ' www.' + domain_name, domain_name) }}"
         domain_directory: /var/www/{{ domain_name }}
 
     - name: Ensure PHP and extensions recommended by WordPress are installed.
@@ -95,7 +99,7 @@
       include_role:
         name: geerlingguy.mysql
       vars:
-        mysql_root_password: "{{ mysql_root_password_input }}"
+        mysql_root_password: "{{ _mysql_root_password }}"
         mysql_root_password_update: true
         mysql_enabled_on_startup: true
         mysql_databases:
@@ -103,42 +107,50 @@
             state: present
         mysql_users:
           - name: wordpress
-            password: "{{ mysql_wordpress_password_input }}"
+            password: "{{ _mysql_wordpress_password }}"
             priv: wordpress.*:ALL
             state: present
 
-    - name: Ensure there is a directory for temporarily storing downloaded WordPress files.
-      ansible.builtin.tempfile:
-        state: directory
-      register: temp_wp_download_directory
+    - name: Check whether domain directory has contents.
+      ansible.builtin.find:
+        paths: "{{ domain_directory }}"
+      register: domain_directory_info
 
-    - name: Ensure there is a directory in deploy user home directory for domain project files (i.e. WordPress files).
-      ansible.builtin.file:
-        name: "{{ domain_directory }}"
-        state: directory
+    - name: Ensure WordPress is installed.
+      when: domain_directory_info.matched == 0
+      block:
+        - name: Ensure there is a directory for temporarily storing downloaded WordPress files.
+          ansible.builtin.tempfile:
+            state: directory
+          register: temp_wp_download_directory
 
-    - name: Download WordPress files from wordpress.org.
-      ansible.builtin.unarchive:
-        src: https://wordpress.org/latest.tar.gz
-        dest: "{{ temp_wp_download_directory.path }}"
-        remote_src: true
+        - name: Ensure there is a directory for domain project files (i.e. WordPress files).
+          ansible.builtin.file:
+            name: "{{ domain_directory }}"
+            state: directory
 
-    - name: Ensure downloaded WordPress files are copied to the domain directory in deploy home.
-      ansible.builtin.copy:
-        src: "{{ temp_wp_download_directory.path }}/wordpress/"
-        dest: "{{ domain_directory }}"
-        remote_src: true
+        - name: Download WordPress files from wordpress.org.
+          ansible.builtin.unarchive:
+            src: https://wordpress.org/latest.tar.gz
+            dest: "{{ temp_wp_download_directory.path }}"
+            remote_src: true
 
-    - name: Delete the temporary directory with downloaded WordPress files.
-      ansible.builtin.file:
-        name: "{{ temp_wp_download_directory.path }}"
-        state: absent
+        - name: Ensure downloaded WordPress files are copied to the domain directory.
+          ansible.builtin.copy:
+            src: "{{ temp_wp_download_directory.path }}/wordpress/"
+            dest: "{{ domain_directory }}"
+            remote_src: true
 
-    # For some reason this must be called to prevent an internal Ansible error:
-    # export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-    # see https://github.com/ansible/ansible/issues/49207#issuecomment-799628947
+        - name: Delete the temporary directory with downloaded WordPress files.
+          ansible.builtin.file:
+            name: "{{ temp_wp_download_directory.path }}"
+            state: absent
+
+    # This environment variables must be set on Mac OS from High Sierra ownards:
+    #   export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    # See: https://github.com/ansible/ansible/issues/32499#issuecomment-341578864
     - name: Ensure 'wp-config.php' is the same as template.
-      template:
+      ansible.builtin.template:
         src: wp-config.php.j2
         dest: "{{ domain_directory }}/wp-config.php"
         force: true
@@ -149,7 +161,7 @@
         path: "{{ domain_directory }}"
         state: directory
         recurse: true
-        owner: "{{ domain_name }}"
+        owner: "{{ domain_user }}"
         group: "{{ domain_group }}"
         mode: u=rwX,g=rwX,o=
 
@@ -158,7 +170,7 @@
 
     - name: Create a symlink to the domain directory from deploy user home directory for convenience.
       ansible.builtin.file:
-        path: /home/{{ deploy_user }}/{{ domain_name }}
+        path: /home/{{ deploy_username }}/{{ domain_name }}
         src: "{{ domain_directory }}"
         state: link
 
@@ -173,6 +185,9 @@
             server_name: "{{ nginx_wordpress_server_names }}"
             root: "{{ domain_directory }}"
             extra_parameters: |
+              ssl_certificate /etc/letsencrypt/live/{{ domain_name }}/fullchain.pem;
+              ssl_certificate_key /etc/letsencrypt/live/{{ domain_name }}/privkey.pem;
+
               location ~* /(?:uploads|files)/.*\.php$ {
                   deny all;
               }
@@ -195,9 +210,4 @@
             server_name: "{{ nginx_wordpress_server_names }}"
             return: "301 https://{{ domain_name }}$request_uri"
             state: present
-
-    - name: Restart SSH
-      service:
-        name: ssh
-        state: restarted
 ...

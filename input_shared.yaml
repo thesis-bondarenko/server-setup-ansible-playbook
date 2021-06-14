@@ -1,0 +1,14 @@
+---
+certbot_notifications_email: dan@singleton.ee
+admin_username: admin-2c45c1d3732d
+authorized_employees_for_admin: [dan, markus]
+deploy_username: deploy-06372f89aa57
+authorized_employees_for_deploy: [kaarel, dan, markus]
+commands_allowed_for_deploy: []
+fail2ban_notifications_email: dan@singleton.ee
+fail2ban_whitelisted_ips:
+  - "84.50.246.146"
+current_ssh_port: "41115"
+new_ssh_port: "41115"      
+start_certbot: true
+...

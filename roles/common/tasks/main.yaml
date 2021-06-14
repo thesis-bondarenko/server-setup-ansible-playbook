@@ -22,6 +22,7 @@
     - name: Ensure there is an admin user with a locked password and a SSH key pair.
       ansible.builtin.user:
         name: "{{ admin_username }}"
+        shell: /bin/bash
         password_lock: true
         generate_ssh_key: true
         state: present
@@ -31,14 +32,8 @@
         dest: /etc/sudoers
         regexp: "^{{ admin_username }}\\s"
         line: "{{ admin_username }} ALL=(ALL:ALL) NOPASSWD: ALL"
+        validate: visudo -cf %s
         state: present
-
-- name: Ensure the host is ready to be further configured for either wordpress or web targets.
-  remote_user: "{{ admin_username }}"
-  become: true
-  block:
-    - name: Gather facts about host system.
-      ansible.builtin.gather_facts:
 
     - name: Retrieve root authorized keys.
       ansible.builtin.command: cat /root/.ssh/authorized_keys
@@ -50,11 +45,25 @@
         key: "{{ root_authorized_keys.stdout }}"
         state: present
 
+    - name: Restart SSH
+      service:
+        name: ssh
+        state: restarted
+
+
+- name: Ensure the host is ready to be further configured for either wordpress or web targets.
+  remote_user: "{{ admin_username }}"
+  become: true
+  block:
+    - name: Gather facts about host system.
+      ansible.builtin.gather_facts:
+
     - name: Ensure SSH access to root user is disallowed.
       ansible.builtin.lineinfile:
         dest: /etc/ssh/sshd_config
         regexp: ^PermitRootLogin
         line: PermitRootLogin no
+        validate: sshd -t -f %s
         state: present
 
     - name: Ensure password-based SSH access is disallowed.
@@ -62,6 +71,7 @@
         dest: /etc/ssh/sshd_config
         regexp: ^PasswordAuthentication
         line: PasswordAuthentication no
+        validate: sshd -t -f %s
         state: present
 
     - name: Ensure challenge-response-based SSH access is disallowed.
@@ -69,7 +79,13 @@
         dest: /etc/ssh/sshd_config
         regexp: ^ChallengeResponseAuthentication
         line: ChallengeResponseAuthentication no
+        validate: sshd -t -f %s
         state: present
+
+    - name: Restart SSH
+      service:
+        name: ssh
+        state: restarted
 
     - name: Update APT package cache.
       ansible.builtin.apt:
@@ -127,10 +143,12 @@
       when: current_ssh_port != new_ssh_port
       block:
         - name: Set up new SSH port
-          lineinfile:
+          ansible.builtin.lineinfile:
             dest: /etc/ssh/sshd_config
             regexp: ^Port
             line: Port {{ new_ssh_port }}
+            validate: sshd -t -f %s
+            state: present
 
         - name: Restart SSH
           service:
@@ -141,10 +159,18 @@
           set_fact:
             ansible_port: "{{ new_ssh_port }}"
 
-        - name: Ensure old SSH port is not allowed through direwall.
+        - name: Delete any UFE rules that allowed SSH through old port.
           community.general.ufw:
-            delete: true
+            rule: allow
             port: "{{ current_ssh_port }}"
+            proto: tcp
+            delete: true
+
+        - name: Ensure any SSH connections on old port are denied.
+          community.general.ufw:
+            rule: deny
+            port: "{{ current_ssh_port }}"
+            proto: any
 
         - name: Reload UFW.
           community.general.ufw:
@@ -165,7 +191,7 @@
         name: git
         state: present
 
-    - name: Ensure NGINX is installed.
+    - name: Ensure Nginx is installed.
       ansible.builtin.apt:
         name: nginx
         state: present
@@ -173,6 +199,7 @@
     - name: Ensure there is a deploy user with a locked password and a SSH key pair.
       ansible.builtin.user:
         name: "{{ deploy_username }}"
+        shell: /bin/bash
         password_lock: true
         generate_ssh_key: true
         state: present
@@ -180,7 +207,7 @@
     - name: Ensure there is .profile file in deploy user home directory.
       ansible.builtin.file:
         path: /home/{{ deploy_username }}/.profile
-        state: present
+        state: file
 
     - name: Ensure UMASK of deploy user is 007 when using login shell.
       ansible.builtin.lineinfile:
@@ -243,11 +270,18 @@
         state: present
         key: "{{ matching_public_keys_deploy.stdout }}"
 
+    - name: Restart SSH
+      service:
+        name: ssh
+        state: restarted
+
     - name: Ensure deploy user is only allowed to sudo the commands specified in input.
+      when: commands_allowed_for_deploy is sequence and (commands_allowed_for_deploy | length > 0)
       ansible.builtin.lineinfile:
         dest: /etc/sudoers
         regexp: "^{{ deploy_username }} "
         line: "{{ deploy_username }} ALL=NOPASSWD: {{ commands_allowed_for_deploy | join(', ') }}"
+        validate: visudo -cf %s
         state: present
 
     - name: Install and enable fail2ban.

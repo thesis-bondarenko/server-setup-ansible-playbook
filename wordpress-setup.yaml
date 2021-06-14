@@ -1,17 +1,15 @@
 ---
 - hosts: wordpress
   gather_facts: false
-  vars_prompt:
-    - name: mysql_root_password_input
-      unsafe: true
-      confirm: true
-      prompt: "What is or will be the password of the root MySQL user?"
-    - name: mysql_wordpress_password_input
-      unsafe: true
-      confirm: true
-      prompt: "What is or will be the password of the WordPress MySQL user?"
+  pre_tasks:
+    - name: Include shared variables.
+      ansible.builtin.include_vars:
+        file: input_shared.yaml
+    - name: Include WordPress-specific variables.
+      ansible.builtin.include_vars:
+        file: input_wordpress.yaml
   roles:
     - common
-    - wordpress
     - certbot
+    - wordpress
 ...

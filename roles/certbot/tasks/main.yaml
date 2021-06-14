@@ -3,24 +3,27 @@
   set_fact:
     ansible_port: "{{ new_ssh_port }}"
 
-- name: Ensure there is an user for automatically renewing HTTPS certificate.
-  ansible.builtin.user:
-    name: certbot
-    system: true
-    shell: /bin/false
-    create_home: false
-    password_lock: true
-
-- name: Ensure Certbot for Let's Encrypt is installed and configured.
+- name: Configure and start Certbot.
   remote_user: "{{ admin_username }}"
+  when: start_certbot | bool
   become: true
-  when: "{{ start_certbot | bool }}"
   block:
-    - name: Ensure PHP and extensions recommended by WordPress are installed.
+    - name: Gather facts about host system.
+      ansible.builtin.gather_facts: {}
+
+    - name: Ensure there is an user for automatically renewing HTTPS certificate.
+      ansible.builtin.user:
+        name: certbot
+        system: true
+        shell: /bin/false
+        create_home: false
+        password_lock: true
+
+    - name: Proceed with Certbot setup.
       include_role:
         name: geerlingguy.certbot
       vars:
-        certbot_install_method: snap
+        certbot_install_method: package
         certbot_auto_renew_user: certbot
         certbot_create_if_missing: true
         certbot_create_method: standalone
