@@ -26,18 +26,6 @@
             system: true
             state: present
 
-        - name: Ensure there is an user for Nginx.
-          ansible.builtin.user:
-            name: nginx
-            system: true
-            shell: /bin/false
-            create_home: false
-            password_lock: true
-            append: true
-            groups:
-              - "{{ domain_group }}"
-            state: present
-
         - name: Ensure there is an user for the given domain, also in the group for the domain directory.
           ansible.builtin.user:
             name: "{{ domain_user }}"
@@ -49,12 +37,26 @@
               - "{{ domain_group }}"
             state: present
 
+        - name: Ensure there is an user for Nginx.
+          ansible.builtin.user:
+            name: nginx
+            system: true
+            shell: /bin/false
+            create_home: false
+            password_lock: true
+            append: true
+            groups:
+              - "{{ domain_group }}"
+              - "{{ domain_user }}"
+            state: present
+
         - name: Ensure the deploy user is the group for the domain directory.
           ansible.builtin.user:
             name: "{{ deploy_username }}"
             append: true
             groups:
               - "{{ domain_group }}"
+              - "{{ domain_user }}"
 
         - name: Ensure there is a system user for running the MySQL daemon.
           ansible.builtin.user:
