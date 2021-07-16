@@ -110,9 +110,9 @@ The following parameters are used by both the WordPress and the NodeJS setups. I
 * `authorized_employees_for_deploy`
     * List of strings: The names from the [sg-public-keys repository](https://bitbucket.org/singleton-group/sg-public-keys/) (without the `.pub` suffix) who are allowed to enter the deploy user with SSH.
     * Example: `authorized_employees_for_deploy: [roman, jan, inga]`
-* `commands_allowed_for_deploy`
-    * List of strings: The commands which the deploy user is allowed to run with sudo.
-    * Example: `commands_allowed_for_deploy: ["systemctl restart nginx", "pm2 deploy production update"]`
+* `sudoers_command_spec_list_for_deploy`
+    * Strings: The sudoers command specification list which specifies which commands which the deploy user is allowed to run with sudo. Refer to `sudoers` man page for explanation of syntax.
+    * Example: `sudoers_command_spec_list_for_deploy: (sg-web-tartu-tech:sg-web-tartu-tech) NOPASSWD: pm2 reload ~/sg-web.tartu.tech/current/ecosystem.config.js --env development`
 * `certbot_notifications_email`
     * String: Email address to which Certbot sends notifications (e.g. when the certificate is expiring). This email address is also used to agree to Certbot TOS.
     * Example: `certbot_notifications_email: dan@singleton.ee`

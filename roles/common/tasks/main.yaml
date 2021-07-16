@@ -276,11 +276,11 @@
         state: restarted
 
     - name: Ensure deploy user is only allowed to sudo the commands specified in input.
-      when: commands_allowed_for_deploy is sequence and (commands_allowed_for_deploy | length > 0)
+      when: sudoers_command_spec_list_for_deploy is sequence and (sudoers_command_spec_list_for_deploy | length > 0)
       ansible.builtin.lineinfile:
         dest: /etc/sudoers
         regexp: "^{{ deploy_username }} "
-        line: "{{ deploy_username }} ALL=NOPASSWD: {{ commands_allowed_for_deploy | join(', ') }}"
+        line: "{{ deploy_username }} ALL={{ sudoers_command_spec_list_for_deploy }}"
         validate: visudo -cf %s
         state: present
 
