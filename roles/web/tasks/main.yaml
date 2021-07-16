@@ -39,25 +39,16 @@
               - "{{ domain_group }}"
             state: present
 
-        - name: Ensure there is a user with home directory for PM2 in the domain directory group.
+        - name: Ensure there is an user for the given domain, also in the group for the domain directory and the deploy primary group.
           ansible.builtin.user:
-            name: pm2
+            name: "{{ domain_user }}"
+            system: true
             shell: /bin/false
             create_home: true
             password_lock: true
             groups:
               - "{{ domain_group }}"
-            state: present
-
-        - name: Ensure there is an user for the given domain, also in the group for the domain directory.
-          ansible.builtin.user:
-            name: "{{ domain_user }}"
-            system: true
-            shell: /bin/false
-            create_home: false
-            password_lock: true
-            groups:
-              - "{{ domain_group }}"
+              - "{{ domain_user }}"
             state: present
 
         - name: Ensure the deploy user is the group for the domain directory.
@@ -82,7 +73,7 @@
         state: present
 
     - name: Ensure PM2 runs on system startup.
-      ansible.builtin.command: env PATH=$PATH:/usr/bin:/usr/local/lib/npm/bin pm2 startup systemd -u pm2 --hp /home/pm2
+      ansible.builtin.command: env PATH=$PATH:/usr/bin:/usr/local/lib/npm/bin pm2 startup systemd -u {{ domain_user }} --hp /home/{{ domain_user }}
 
     - name: Ensure there is a directory for the node project files with correct permissions set.
       ansible.builtin.file:
